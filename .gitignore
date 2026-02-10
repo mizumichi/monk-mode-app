@@ -6,8 +6,8 @@ __pycache__/
 # 環境変数
 .env
 
-# Streamlitキャッシュ
-.streamlit/
+# Streamlit（secrets.tomlのみ除外、config.tomlは追跡する）
+.streamlit/secrets.toml
 
 # その他
 *.log
