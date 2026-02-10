@@ -50,16 +50,16 @@
   - スプリント完了時に、完了報告書のチェックリストを実環境上で1項目ずつ検証する
   - 「ドキュメント上の完了」と「環境上の完了」を区別して確認する
 
-### #3 httpx==0.24.1 が supabase==2.3.4 と非互換
+### #3 gotrue と httpx のバージョン非互換による起動エラー
 - **発生日**: 2026-02-10
 - **スプリント**: Sprint 1
 - **カテゴリ**: 環境構築
-- **内容**: `streamlit run Home.py` 実行時に `TypeError: Client.__init__() got an unexpected keyword argument 'proxy'` が発生。`supabase==2.3.4` が依存する `gotrue` が `httpx.Client(proxy=...)` を使用するが、`httpx==0.24.1` は `proxy` パラメータ未対応（0.28.0以降で対応）。
-- **原因**: `requirements.txt` で `httpx==0.24.1` を明示的にピン留めしていたため、`supabase` が要求する互換バージョンがインストールされなかった。
-- **対応**: `requirements.txt` から `httpx==0.24.1` のピン留めを削除し、`supabase==2.3.4` の依存関係として互換バージョンが自動解決されるようにした。ドキュメント内の該当記載もすべて修正。
+- **内容**: `streamlit run Home.py` 実行時に `TypeError: Client.__init__() got an unexpected keyword argument 'proxy'` が発生。`supabase==2.3.4` は `gotrue>=1.3,<3.0` と広い範囲を許容しており、pip が `gotrue>=2.10.0`（`httpx>=0.26` 必須）をインストール。しかし `supabase==2.3.4` 自体は `httpx>=0.24,<0.26` を要求するため、gotrue が使う `httpx.Client(proxy=...)` がエラーとなった。
+- **原因**: `supabase==2.3.4` の依存仕様で `gotrue<3.0` と広すぎる範囲を許容していた。`gotrue 2.10.0` 以降で httpx の最低要件が `>=0.26` に引き上げられたが、supabase 側の httpx 制約（`<0.26`）と矛盾が生じた。
+- **対応**: `requirements.txt` に `gotrue>=2.4.1,<2.10.0` を明示し、httpx 0.24-0.25 と互換性のある gotrue バージョンに制約した。httpx の明示的ピン留めは削除。
 - **再発防止**:
-  - サードパーティライブラリの間接依存は明示的にピン留めせず、直接依存のみを管理する
-  - バージョンピンを追加する場合は依存ツリー全体の互換性を `pip check` で確認する
+  - 間接依存でもバージョン範囲の広いパッケージは `pip check` で実際の解決結果を確認する
+  - エラー発生時は PyPI の依存仕様を直接確認し、根本原因を特定してから修正する
 
 ---
 
