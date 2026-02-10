@@ -85,16 +85,17 @@ def signup(email: str, password: str, display_name: str) -> bool:
             return False
 
         # Supabase Auth でユーザー作成
+        # display_nameはユーザーメタデータとして渡し、
+        # DBトリガー(handle_new_user)がuser_profilesに自動挿入する
         response = supabase.auth.sign_up({
             "email": email,
             "password": password,
+            "options": {
+                "data": {
+                    "display_name": display_name,
+                }
+            },
         })
-
-        # user_profilesにレコード作成
-        supabase.table("user_profiles").insert({
-            "id": response.user.id,
-            "display_name": display_name,
-        }).execute()
 
         # セッション状態に保存
         st.session_state["user"] = {

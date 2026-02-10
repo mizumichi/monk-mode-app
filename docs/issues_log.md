@@ -66,6 +66,20 @@
   - 修正時は依存ツリー全体の制約を確認し、一箇所のピン留めが他の制約と矛盾しないか検証する
   - `pip install` 後に `pip check` で依存関係の整合性を確認する
 
+### #4 サインアップ時に user_profiles の RLS ポリシー違反
+- **発生日**: 2026-02-11
+- **スプリント**: Sprint 1
+- **カテゴリ**: 設計
+- **内容**: 新規ユーザー登録時に `new row violates row-level security policy for table "user_profiles"` (42501) エラーが発生。
+- **原因**: `signup()` で `sign_up()` → `user_profiles` INSERT の順で実行していたが、`sign_up()` 後にセッションが未確立（メール確認待ち等）の場合、`auth.uid()` が NULL となり RLS の `auth.uid() = id` を満たせなかった。アプリ側からの INSERT は認証状態に依存するため不安定。
+- **対応**: Supabase 推奨パターン「DB トリガーによる自動プロフィール作成」に変更。
+  - `auth.users` への INSERT をトリガーで検知し、`SECURITY DEFINER` 関数で `user_profiles` に自動挿入
+  - `sign_up()` に `options.data.display_name` としてメタデータを渡し、トリガーが `raw_user_meta_data` から取得
+  - アプリ側の手動 INSERT を削除
+- **再発防止**:
+  - Supabase Auth 連携のテーブルは DB トリガーで作成し、アプリ側からの直接 INSERT に依存しない
+  - RLS ポリシー設計時に、認証フロー中のセッション状態を考慮する
+
 ---
 
 ## 今後の運用
