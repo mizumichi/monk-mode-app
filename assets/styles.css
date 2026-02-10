@@ -1,0 +1,22 @@
+/* モンクモード支援システム - カスタムCSS */
+/* シンプル、ミニマルなデザイン */
+
+.stApp {
+    background-color: #F8F9FA;
+}
+
+/* タスクカード */
+.task-card {
+    background: white;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 8px 0;
+    border-left: 4px solid #27AE60;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* ストリーク表示 */
+.streak-badge {
+    font-size: 2em;
+    color: #E67E22;
+}
