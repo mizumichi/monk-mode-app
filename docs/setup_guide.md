@@ -92,13 +92,15 @@ source venv/Scripts/activate
 ```txt
 streamlit==1.31.0
 supabase==2.3.4
-httpx==0.24.1
+gotrue>=2.4.1,<2.9.0
 python-dotenv==1.0.0
 pandas==2.1.4
 plotly==5.18.0
 altair==5.2.0
 Pillow==10.2.0
 ```
+
+> **注意**: `supabase==2.3.4` は `gotrue>=1.3,<3.0` と広い範囲を許容しますが、`gotrue>=2.9.0` は `httpx>=0.26` を要求し、supabase 自体の `httpx<0.26` 制約と矛盾します。`gotrue<2.9.0` のピン留めは必須です。
 
 パッケージインストール:
 ```bash
@@ -299,7 +301,7 @@ git push -u origin main
 ```txt
 streamlit==1.31.0
 supabase==2.3.4
-httpx==0.24.1
+gotrue>=2.4.1,<2.9.0
 python-dotenv==1.0.0
 pandas==2.1.4
 plotly==5.18.0
