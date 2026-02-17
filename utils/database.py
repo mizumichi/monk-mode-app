@@ -1,7 +1,7 @@
 """
 データベース操作モジュール
 
-daily_tasksテーブルに対するCRUD操作を提供する。
+daily_tasks / pomodoro_sessionsテーブルに対するCRUD操作を提供する。
 すべてのDB操作はこのモジュールに集約する。
 
 主要機能:
@@ -11,10 +11,16 @@ daily_tasksテーブルに対するCRUD操作を提供する。
 - delete_task: タスク削除
 - toggle_task_completion: タスク完了状態の切り替え
 - get_task_completion_rate: タスク完了率の計算
+- move_task_up / move_task_down: タスクの並び替え
+- get_incomplete_tasks: 未完了タスク取得
+- carryover_tasks: タスク繰り越し
+- save_pomodoro_session: ポモドーロセッション保存
+- get_pomodoro_sessions_by_date: セッション履歴取得
+- update_task_work_time: タスク作業時間更新
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 from utils.supabase_client import supabase
@@ -40,20 +46,10 @@ def get_tasks_by_date(user_id: str, task_date: str) -> List[Dict]:
             .select("*")\
             .eq("user_id", user_id)\
             .eq("task_date", task_date)\
-            .order("is_completed")\
-            .order("created_at")\
+            .order("display_order")\
             .execute()
 
-        # アプリ側で優先度ソート（Supabaseはカスタムソート順未対応のため）
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        tasks = response.data
-        tasks.sort(key=lambda t: (
-            t["is_completed"],
-            priority_order.get(t["priority"], 1),
-            t["created_at"],
-        ))
-
-        return tasks
+        return response.data
 
     except Exception as e:
         logger.error("Error fetching tasks: %s", e)
@@ -221,3 +217,295 @@ def get_task_completion_rate(user_id: str, task_date: str) -> float:
     except Exception as e:
         logger.error("Error calculating completion rate: %s", e)
         return 0.0
+
+
+# --- Sprint 2: タスク並び替え ---
+
+
+def move_task_up(task_id: str, user_id: str, task_date: str) -> bool:
+    """
+    タスクを上に移動
+
+    現在のタスクより1つ上のタスクとdisplay_orderを入れ替える。
+
+    Args:
+        task_id: 移動するタスクID
+        user_id: ユーザーID
+        task_date: 対象日付（YYYY-MM-DD形式）
+
+    Returns:
+        成功時True
+    """
+    try:
+        current_task = supabase.table("daily_tasks")\
+            .select("display_order")\
+            .eq("id", task_id)\
+            .single()\
+            .execute()
+
+        current_order = current_task.data["display_order"]
+
+        prev_task = supabase.table("daily_tasks")\
+            .select("id, display_order")\
+            .eq("user_id", user_id)\
+            .eq("task_date", task_date)\
+            .lt("display_order", current_order)\
+            .order("display_order", desc=True)\
+            .limit(1)\
+            .execute()
+
+        if not prev_task.data:
+            return False
+
+        prev_order = prev_task.data[0]["display_order"]
+        prev_id = prev_task.data[0]["id"]
+
+        supabase.table("daily_tasks")\
+            .update({"display_order": prev_order})\
+            .eq("id", task_id)\
+            .execute()
+
+        supabase.table("daily_tasks")\
+            .update({"display_order": current_order})\
+            .eq("id", prev_id)\
+            .execute()
+
+        logger.info("Moved task %s up", task_id)
+        return True
+
+    except Exception as e:
+        logger.error("Error moving task up %s: %s", task_id, e)
+        return False
+
+
+def move_task_down(task_id: str, user_id: str, task_date: str) -> bool:
+    """
+    タスクを下に移動
+
+    現在のタスクより1つ下のタスクとdisplay_orderを入れ替える。
+
+    Args:
+        task_id: 移動するタスクID
+        user_id: ユーザーID
+        task_date: 対象日付（YYYY-MM-DD形式）
+
+    Returns:
+        成功時True
+    """
+    try:
+        current_task = supabase.table("daily_tasks")\
+            .select("display_order")\
+            .eq("id", task_id)\
+            .single()\
+            .execute()
+
+        current_order = current_task.data["display_order"]
+
+        next_task = supabase.table("daily_tasks")\
+            .select("id, display_order")\
+            .eq("user_id", user_id)\
+            .eq("task_date", task_date)\
+            .gt("display_order", current_order)\
+            .order("display_order")\
+            .limit(1)\
+            .execute()
+
+        if not next_task.data:
+            return False
+
+        next_order = next_task.data[0]["display_order"]
+        next_id = next_task.data[0]["id"]
+
+        supabase.table("daily_tasks")\
+            .update({"display_order": next_order})\
+            .eq("id", task_id)\
+            .execute()
+
+        supabase.table("daily_tasks")\
+            .update({"display_order": current_order})\
+            .eq("id", next_id)\
+            .execute()
+
+        logger.info("Moved task %s down", task_id)
+        return True
+
+    except Exception as e:
+        logger.error("Error moving task down %s: %s", task_id, e)
+        return False
+
+
+# --- Sprint 2: 繰り越し機能 ---
+
+
+def get_incomplete_tasks(user_id: str, task_date: str) -> List[Dict]:
+    """
+    指定日の未完了タスクを取得
+
+    Args:
+        user_id: ユーザーID
+        task_date: 日付（YYYY-MM-DD形式）
+
+    Returns:
+        未完了タスクのリスト
+    """
+    try:
+        response = supabase.table("daily_tasks")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .eq("task_date", task_date)\
+            .eq("is_completed", False)\
+            .order("display_order")\
+            .execute()
+
+        return response.data
+
+    except Exception as e:
+        logger.error("Error fetching incomplete tasks: %s", e)
+        return []
+
+
+def carryover_tasks(task_ids: List[str], new_date: str) -> bool:
+    """
+    タスクを新しい日付に繰り越す
+
+    元のタスクの日付を更新する方式（移動）。
+    繰り越し先の日付で最後尾に追加される。
+
+    Args:
+        task_ids: 繰り越すタスクIDのリスト
+        new_date: 新しい日付（YYYY-MM-DD形式）
+
+    Returns:
+        成功時True
+    """
+    try:
+        for task_id in task_ids:
+            supabase.table("daily_tasks")\
+                .update({
+                    "task_date": new_date,
+                    "updated_at": datetime.now().isoformat(),
+                })\
+                .eq("id", task_id)\
+                .execute()
+
+        logger.info("Carried over %d tasks to %s", len(task_ids), new_date)
+        return True
+
+    except Exception as e:
+        logger.error("Error carrying over tasks: %s", e)
+        return False
+
+
+# --- Sprint 2: ポモドーロセッション ---
+
+
+def save_pomodoro_session(
+    user_id: str,
+    session_type: str,
+    duration_seconds: int,
+    task_id: Optional[str] = None,
+) -> Optional[Dict]:
+    """
+    ポモドーロセッションを記録
+
+    Args:
+        user_id: ユーザーID
+        session_type: 'work', 'short_break', 'long_break'
+        duration_seconds: セッション時間（秒）
+        task_id: 関連タスクID（オプション）
+
+    Returns:
+        保存されたセッション。失敗時はNone。
+    """
+    try:
+        now = datetime.now()
+        started_at = (now - timedelta(seconds=duration_seconds)).isoformat()
+
+        session_data = {
+            "user_id": user_id,
+            "session_type": session_type,
+            "duration_minutes": duration_seconds // 60,
+            "started_at": started_at,
+            "ended_at": now.isoformat(),
+            "completed": True,
+        }
+
+        if task_id:
+            session_data["task_id"] = task_id
+
+        response = supabase.table("pomodoro_sessions")\
+            .insert(session_data)\
+            .execute()
+
+        logger.info("Saved pomodoro session: %s", session_type)
+        return response.data[0] if response.data else None
+
+    except Exception as e:
+        logger.error("Error saving pomodoro session: %s", e)
+        return None
+
+
+def get_pomodoro_sessions_by_date(
+    user_id: str, target_date: str
+) -> List[Dict]:
+    """
+    指定日のポモドーロセッション一覧を取得
+
+    Args:
+        user_id: ユーザーID
+        target_date: 対象日付（YYYY-MM-DD形式）
+
+    Returns:
+        セッションのリスト
+    """
+    try:
+        response = supabase.table("pomodoro_sessions")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .gte("started_at", f"{target_date}T00:00:00")\
+            .lte("started_at", f"{target_date}T23:59:59")\
+            .order("started_at", desc=True)\
+            .execute()
+
+        return response.data
+
+    except Exception as e:
+        logger.error("Error fetching pomodoro sessions: %s", e)
+        return []
+
+
+def update_task_work_time(task_id: str, minutes: int) -> bool:
+    """
+    タスクの作業時間を加算更新
+
+    Args:
+        task_id: タスクID
+        minutes: 追加する作業時間（分）
+
+    Returns:
+        成功時True
+    """
+    try:
+        task = supabase.table("daily_tasks")\
+            .select("total_work_minutes")\
+            .eq("id", task_id)\
+            .single()\
+            .execute()
+
+        current_minutes = task.data.get("total_work_minutes") or 0
+        new_total = current_minutes + minutes
+
+        supabase.table("daily_tasks")\
+            .update({"total_work_minutes": new_total})\
+            .eq("id", task_id)\
+            .execute()
+
+        logger.info(
+            "Updated task %s work time: +%d min (total: %d)",
+            task_id, minutes, new_total,
+        )
+        return True
+
+    except Exception as e:
+        logger.error("Error updating task work time %s: %s", task_id, e)
+        return False

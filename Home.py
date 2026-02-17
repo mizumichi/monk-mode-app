@@ -61,6 +61,14 @@ with col_left:
     completed_tasks = len([t for t in tasks if t["is_completed"]])
     st.metric("今日のタスク", f"{completed_tasks}/{total_tasks}")
 
+    st.divider()
+
+    # 作業時間統計
+    total_work_minutes = sum(
+        t.get("total_work_minutes") or 0 for t in tasks
+    )
+    st.metric("今日の作業時間", f"{total_work_minutes}分")
+
 # 中央カラム: 今日のタスク
 with col_center:
     st.subheader("📋 今日のタスク")
@@ -68,7 +76,10 @@ with col_center:
     if tasks:
         # 達成率
         completion_rate = get_task_completion_rate(user["id"], today_str)
-        st.progress(completion_rate, text=f"達成率: {int(completion_rate * 100)}%")
+        st.progress(
+            completion_rate,
+            text=f"達成率: {int(completion_rate * 100)}%",
+        )
 
         st.write("")
 
@@ -88,14 +99,21 @@ with col_center:
                 )
 
             with col_task:
+                work_info = ""
+                work_minutes = task.get("total_work_minutes") or 0
+                if work_minutes > 0:
+                    work_info = f" ⏱️ {work_minutes}分"
+
                 if task["is_completed"]:
                     st.markdown(
-                        f"~~{task['title']}~~ 🏷️ {task['category']}",
+                        f"~~{task['title']}~~ "
+                        f"🏷️ {task['category']}{work_info}",
                         help=task.get("description", ""),
                     )
                 else:
                     st.markdown(
-                        f"**{task['title']}** 🏷️ {task['category']}",
+                        f"**{task['title']}** "
+                        f"🏷️ {task['category']}{work_info}",
                         help=task.get("description", ""),
                     )
 
@@ -120,6 +138,9 @@ with col_right:
 
     if st.button("➕ タスク追加", use_container_width=True):
         st.switch_page("pages/1_📋_Tasks.py")
+
+    if st.button("⏱️ タイマー", use_container_width=True):
+        st.switch_page("pages/2_⏱️_Timer.py")
 
     st.divider()
 
